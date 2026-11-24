@@ -11,6 +11,16 @@ enum Format {
         (Double(bytes) / 1_073_741_824).formatted(.number.precision(.fractionLength(1))) + " GB"
     }
 
+    /// 251658240 -> "252 MB" (binary units, like Activity Monitor)
+    static func memory(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .memory)
+    }
+
+    /// 12.34 (already a percentage, 100 = one core) -> "12.3%"
+    static func cpuPercent(_ percent: Double) -> String {
+        percent.formatted(.number.precision(.fractionLength(1))) + "%"
+    }
+
     /// 1250000 -> "1.3 MB/s"
     static func rate(_ bytesPerSecond: Double) -> String {
         let formatter = ByteCountFormatter()

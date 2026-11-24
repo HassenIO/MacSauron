@@ -8,7 +8,7 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             CPUSection(metrics: store.metrics)
             Divider().padding(.vertical, 12)
-            MemorySection(memory: store.metrics.memory)
+            MemorySection(memory: store.metrics.memory, topApps: store.metrics.topMemory)
             Divider().padding(.vertical, 12)
             NetworkSection(metrics: store.metrics)
             if store.metrics.battery != nil {
@@ -51,12 +51,14 @@ private struct CPUSection: View {
                 ("System", Format.percent(metrics.cpu?.system ?? 0), .red),
                 ("Idle", Format.percent(1 - (metrics.cpu?.total ?? 0)), .secondary),
             ])
+            TopApps(apps: metrics.topCPU, format: Format.cpuPercent)
         }
     }
 }
 
 private struct MemorySection: View {
     let memory: MemoryUsage?
+    let topApps: [AppUsage]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -77,6 +79,7 @@ private struct MemorySection: View {
                     ("Swap", Format.gigabytes(memory.swapUsed), .secondary),
                     ("Pressure", memory.pressure.rawValue, pressureColor(memory.pressure)),
                 ])
+                TopApps(apps: topApps) { Format.memory(UInt64($0)) }
             }
         }
     }
@@ -152,6 +155,7 @@ private struct NetworkSection: View {
                 ("Received", Format.rate(metrics.network?.bytesIn ?? 0), .blue),
                 ("Sent", Format.rate(metrics.network?.bytesOut ?? 0), .orange),
             ])
+            TopApps(apps: metrics.topNetwork, format: Format.rate)
         }
     }
 }
@@ -178,9 +182,12 @@ private struct BatterySection: View {
             .chartXScale(domain: Date().addingTimeInterval(-MetricsStore.batteryWindow)...Date())
             .chartYAxis { percentAxis() }
             .chartXAxis {
-                AxisMarks(values: .stride(by: .hour, count: 3)) { _ in
+                AxisMarks(values: .stride(by: .hour, count: 3)) { value in
                     AxisGridLine()
-                    AxisValueLabel(format: .dateTime.hour(), centered: false).font(.system(size: 8))
+                    // A label starting in the last hour has no room before the chart edge and would show as "...".
+                    if let date = value.as(Date.self), date < Date().addingTimeInterval(-60 * 60) {
+                        AxisValueLabel(format: .dateTime.hour(), centered: false).font(.system(size: 8))
+                    }
                 }
             }
             .frame(height: 72)
@@ -246,6 +253,82 @@ private struct SectionHeader: View {
                     .monospacedDigit()
             }
         }
+    }
+}
+
+/// The apps using the most of a resource: icon, name and formatted value.
+/// Always lays out `MetricsStore.topAppCount` rows so the popover height never jumps.
+private struct TopApps: View {
+    let apps: [AppUsage]
+    let format: (Double) -> String
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ForEach(0..<MetricsStore.topAppCount, id: \.self) { index in
+                if index < apps.count {
+                    row(apps[index])
+                } else {
+                    Color.clear.frame(height: rowHeight)
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private let rowHeight: CGFloat = 16
+
+    private func row(_ app: AppUsage) -> some View {
+        HStack(spacing: 6) {
+            AppIcon(path: app.iconPath)
+            Text(app.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Text(format(app.value))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .frame(height: rowHeight)
+    }
+}
+
+/// Finder icon of an app or executable, cached per path.
+private struct AppIcon: View {
+    let path: String?
+
+    @MainActor private static var cache: [String: NSImage] = [:]
+
+    var body: some View {
+        Image(nsImage: icon)
+            .resizable()
+            .frame(width: 14, height: 14)
+    }
+
+    private var icon: NSImage {
+        let key = path ?? ""
+        if let cached = Self.cache[key] { return cached }
+        let source = path.map { NSWorkspace.shared.icon(forFile: $0) } ?? NSWorkspace.shared.icon(for: .unixExecutable)
+        let image = Self.rasterize(source)
+        Self.cache[key] = image
+        return image
+    }
+
+    /// Workspace icons are lazy multi-resolution images; draw once into a small @2x bitmap.
+    private static func rasterize(_ source: NSImage) -> NSImage {
+        let pixels = 28
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return source }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        source.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
+        NSGraphicsContext.restoreGraphicsState()
+        rep.size = NSSize(width: 14, height: 14)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
     }
 }
 

@@ -8,6 +8,7 @@ Clicking it opens a popover with:
 - Memory breakdown (app, wired, compressed, cached, swap, memory pressure)
 - Network throughput graph (received / sent, last 5 minutes)
 - Battery level graph (last 12 hours)
+- The 4 apps using the most CPU, memory and network (helper processes are counted under their app)
 
 All figures come from the same kernel and IOKit sources Activity Monitor uses.
 No admin rights are needed.
@@ -31,11 +32,13 @@ To start it at login, add it in System Settings > General > Login Items.
 
 - Battery history is stored in `~/Library/Application Support/MacSauron/battery.json` (one reading per minute).
 - For periods when the app was not running, the battery graph is backfilled from the system power log (`pmset -g log`).
+- The CPU and memory top-4 lists only include your own processes; system daemons such as WindowServer need admin rights to read.
+- The network top-4 list comes from `nettop`, refreshed about every 5 seconds.
 - Network totals include every non-loopback interface, so VPN traffic is counted on both the VPN and the physical interface.
 
 ## Development
 
 `swift build` builds a debug binary.
-`.build/debug/MacSauron --snapshot <dir>` renders the popover in light and dark mode to PNGs in `<dir>` after 12 seconds of sampling, then exits.
+`.build/debug/MacSauron --snapshot <dir>` renders the popover in light and dark mode to PNGs in `<dir>` after 15 seconds of sampling, then exits.
 This is handy to check the UI without screen recording permission.
 AppKit controls (the footer buttons) show as placeholders in those snapshots.

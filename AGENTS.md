@@ -1,6 +1,6 @@
 # AGENTS.md
 
-MacSauron is a minimal macOS menu bar app (SwiftUI `MenuBarExtra` + Swift Charts) that shows CPU, memory, network and battery metrics.
+MacSauron is a minimal macOS menu bar app (SwiftUI `MenuBarExtra` + Swift Charts) that shows CPU, memory, network and battery metrics, plus the top 4 apps for CPU, memory and network.
 It is a Swift Package with no Xcode project and no third-party dependencies.
 
 ## Commands
@@ -8,7 +8,7 @@ It is a Swift Package with no Xcode project and no third-party dependencies.
 - Debug build: `swift build`
 - Release app bundle: `./build.sh` (outputs `build/MacSauron.app`, ad-hoc signed, `LSUIElement` so there is no Dock icon)
 - Run: `pkill -x MacSauron; open build/MacSauron.app`
-- UI check without screen recording permission: `.build/debug/MacSauron --snapshot <dir>` writes `popover-light.png` and `popover-dark.png` to `<dir>` after 12s of sampling, then exits.
+- UI check without screen recording permission: `.build/debug/MacSauron --snapshot <dir>` writes `popover-light.png` and `popover-dark.png` to `<dir>` after 15s of sampling, then exits.
   AppKit controls (footer buttons) render as yellow placeholders there, which is expected.
 - Idle CPU check: `ps -o time= -p $(pgrep -x MacSauron)` before and after a 60s wait, and `sample $(pgrep -x MacSauron) 10` to profile.
 
@@ -18,6 +18,8 @@ All code lives in `Sources/MacSauron/`:
 
 - `MacSauronApp.swift` - app entry, `MenuBarExtra` scene, menu bar label.
 - `CPUMonitor.swift`, `MemoryMonitor.swift`, `NetworkMonitor.swift`, `BatteryMonitor.swift` - one reader per metric, built on Mach / sysctl / IOKit APIs (the same sources Activity Monitor uses, no `sudo`).
+- `ProcessMonitor.swift` - per-app CPU and memory via libproc (`proc_pid_rusage`), plus `AppIdentity` (groups helper processes under their outermost `.app`).
+- `ProcessNetworkMonitor.swift` - per-app network throughput from `nettop` runs.
 - `MetricsStore.swift` - `@MainActor @Observable` store, samples everything every 2s and keeps the histories.
 - `PopoverView.swift` - the popover UI, one section view per metric.
 - `WindowVisibilityReader.swift` - reports whether the popover window is on screen (occlusion state).
@@ -35,6 +37,11 @@ All code lives in `Sources/MacSauron/`:
   On launch it is backfilled from `pmset -g log` charge entries, parsed off the main thread.
   The latest reading older than the 12h window is pinned to the window start so the graph spans the full chart.
 - Memory definitions follow Activity Monitor: used = app + wired + compressed, app = internal - purgeable, cached = external + purgeable.
+- Top apps: CPU % follows Activity Monitor (100% = one core), memory is the summed physical footprint.
+  Without a privileged helper only processes owned by the current user are readable, so root daemons (WindowServer, kernel_task) are absent from the CPU and memory lists.
+- Per-process network has no public API: `nettop -P -L 1` runs back to back in a detached task (each run takes ~5s wall time but little CPU) and consecutive runs are diffed per pid.
+  Never stream `nettop` or `top` (measured at ~120% and ~7% CPU).
+- App icons are rasterized once into a small bitmap; raw `NSWorkspace` icons made `ImageRenderer` dim the whole snapshot.
 - Network uses `NET_RT_IFLIST2` 64-bit counters (the 32-bit `getifaddrs` counters wrap) and sums all non-loopback interfaces.
 
 ## Conventions

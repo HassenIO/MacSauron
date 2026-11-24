@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Dev helper: `MacSauron --snapshot <dir>` samples metrics for a few seconds,
+/// Dev helper: `MacSauron --snapshot <dir>` samples metrics for 15 seconds,
 /// writes the popover rendered in light and dark mode as PNGs to <dir>, then exits.
 /// Lets the UI be inspected without screen recording permission.
 enum Snapshot {
@@ -13,7 +13,7 @@ enum Snapshot {
     @MainActor
     static func run(store: MetricsStore, to directory: URL) {
         Task {
-            try? await Task.sleep(for: .seconds(12))
+            try? await Task.sleep(for: .seconds(15))
             store.isPopoverVisible = true // offscreen rendering has no window to report visibility
             for scheme in [ColorScheme.light, .dark] {
                 let view = PopoverView(store: store)

@@ -23,6 +23,10 @@ struct Metrics {
     var recordedBattery: [BatteryPoint] = []
     /// Readings from the system power log (not persisted, reloaded on each launch).
     var powerLogBattery: [BatteryPoint] = []
+    /// Apps using the most of each resource.
+    var topCPU: [AppUsage] = []
+    var topMemory: [AppUsage] = []
+    var topNetwork: [AppUsage] = []
 
     var cpu: CPULoad? { cpuHistory.last?.load }
     var network: NetworkRate? { networkHistory.last?.rate }
@@ -54,6 +58,7 @@ final class MetricsStore {
     nonisolated static let batteryRecordInterval: TimeInterval = 60
     /// Readings are kept longer than the chart window so the chart start can be anchored.
     nonisolated static let batteryRetention: TimeInterval = 24 * 60 * 60
+    nonisolated static let topAppCount = 4
 
     /// What the popover displays.
     private(set) var metrics = Metrics()
@@ -68,11 +73,14 @@ final class MetricsStore {
     @ObservationIgnored private let cpuMonitor = CPUMonitor()
     @ObservationIgnored private let memoryMonitor = MemoryMonitor()
     @ObservationIgnored private let networkMonitor = NetworkMonitor()
+    @ObservationIgnored private let processMonitor = ProcessMonitor()
+    @ObservationIgnored private let processNetworkMonitor = ProcessNetworkMonitor()
 
     init() {
         tick()
         metrics = live // initial layout (e.g. whether the battery section exists) must be right
         loadPowerLog()
+        startProcessNetworkLoop()
         Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.sampleInterval))
@@ -95,6 +103,7 @@ final class MetricsStore {
             live.networkHistory.removeAll { $0.date < cutoff }
         }
         live.memory = memoryMonitor.sample()
+        (live.topCPU, live.topMemory) = processMonitor.sample(limit: Self.topAppCount)
         live.battery = BatteryMonitor.read()
         recordBatteryIfNeeded(now: now)
 
@@ -107,6 +116,26 @@ final class MetricsStore {
         live.recordedBattery.append(BatteryPoint(date: now, percent: battery.percent))
         live.recordedBattery.removeAll { $0.date < now.addingTimeInterval(-Self.batteryRetention) }
         BatteryHistoryFile.save(live.recordedBattery)
+    }
+
+    /// Runs `nettop` back to back off the main thread (each run takes ~5s) to keep the per-app network list fresh.
+    private func startProcessNetworkLoop() {
+        Task.detached(priority: .utility) { [weak self] in
+            while !Task.isCancelled {
+                guard let counters = ProcessNetworkMonitor.readCounters() else {
+                    try? await Task.sleep(for: .seconds(10)) // nettop unavailable; retry later without spinning
+                    continue
+                }
+                guard let self else { return }
+                await self.ingest(counters)
+            }
+        }
+    }
+
+    private func ingest(_ counters: ProcessNetworkMonitor.Counters) {
+        guard let top = processNetworkMonitor.ingest(counters, limit: Self.topAppCount) else { return }
+        live.topNetwork = top
+        if isPopoverVisible { metrics.topNetwork = top }
     }
 
     /// Parses the system power log off the main thread to backfill the battery graph.
