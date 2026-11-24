@@ -279,7 +279,15 @@ private struct TopApps: View {
 
     private func row(_ app: AppUsage) -> some View {
         HStack(spacing: 6) {
-            AppIcon(path: app.iconPath)
+            if app.isWarning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .frame(width: 14, height: 14)
+                    .help("Above 75% CPU for the last 30 seconds")
+            } else {
+                AppIcon(path: app.iconPath)
+            }
             Text(app.name)
                 .lineLimit(1)
                 .truncationMode(.tail)

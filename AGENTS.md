@@ -8,7 +8,7 @@ It is a Swift Package with no Xcode project and no third-party dependencies.
 - Debug build: `swift build`
 - Release app bundle: `./build.sh` (outputs `build/MacSauron.app`, ad-hoc signed, `LSUIElement` so there is no Dock icon)
 - Run: `pkill -x MacSauron; open build/MacSauron.app`
-- UI check without screen recording permission: `.build/debug/MacSauron --snapshot <dir>` writes `popover-light.png` and `popover-dark.png` to `<dir>` after 15s of sampling, then exits.
+- UI check without screen recording permission: `.build/debug/MacSauron --snapshot <dir>` writes `popover-light.png` and `popover-dark.png` to `<dir>` after 15s of sampling (or `--snapshot <dir> <seconds>`), then exits.
   AppKit controls (footer buttons) render as yellow placeholders there, which is expected.
 - Idle CPU check: `ps -o time= -p $(pgrep -x MacSauron)` before and after a 60s wait, and `sample $(pgrep -x MacSauron) 10` to profile.
 

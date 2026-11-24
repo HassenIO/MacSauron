@@ -7,6 +7,8 @@ struct AppUsage: Identifiable, Equatable {
     /// File whose Finder icon represents the app (bundle or executable path).
     let iconPath: String?
     let value: Double
+    /// Set when the app has been hogging the resource (see `ProcessMonitor.cpuWarningThreshold`).
+    var isWarning = false
     var id: String { name }
 }
 
@@ -77,6 +79,13 @@ final class ProcessMonitor {
     private let nanosPerTick: Double
     private var previous: [pid_t: Reading] = [:]
     private var previousTime: Date?
+    /// Per-app CPU of the most recent samples, oldest first, used for the sustained-load warning.
+    private var cpuWindow: [[AppIdentity: Double]] = []
+
+    /// An app averaging more than this CPU % (100 = one core) over `cpuWarningSamples` samples is flagged.
+    static let cpuWarningThreshold: Double = 75
+    /// 15 samples at 2s per tick = 30 seconds.
+    static let cpuWarningSamples = 15
 
     init() {
         var timebase = mach_timebase_info_data_t()
@@ -116,15 +125,32 @@ final class ProcessMonitor {
         previous = current
         previousTime = now
         resolver.prune(keeping: Set(current.keys))
-        return (Self.top(cpuByApp, limit: limit), Self.top(memoryByApp, limit: limit))
+
+        if elapsed > 0 {
+            cpuWindow.append(cpuByApp)
+            if cpuWindow.count > Self.cpuWarningSamples { cpuWindow.removeFirst() }
+        }
+        return (Self.top(cpuByApp, limit: limit, warned: appsHoggingCPU()), Self.top(memoryByApp, limit: limit))
     }
 
-    static func top(_ values: [AppIdentity: Double], limit: Int) -> [AppUsage] {
+    /// Apps whose CPU averaged above the threshold over a full 30s window.
+    private func appsHoggingCPU() -> Set<AppIdentity> {
+        guard cpuWindow.count == Self.cpuWarningSamples else { return [] }
+        var totals: [AppIdentity: Double] = [:]
+        for sample in cpuWindow {
+            totals.merge(sample, uniquingKeysWith: +)
+        }
+        return Set(totals.filter { $0.value / Double(cpuWindow.count) > Self.cpuWarningThreshold }.keys)
+    }
+
+    static func top(_ values: [AppIdentity: Double], limit: Int, warned: Set<AppIdentity> = []) -> [AppUsage] {
         values
             .filter { $0.value > 0 }
             .sorted { $0.value > $1.value }
             .prefix(limit)
-            .map { AppUsage(name: $0.key.name, iconPath: $0.key.iconPath, value: $0.value) }
+            .map {
+                AppUsage(name: $0.key.name, iconPath: $0.key.iconPath, value: $0.value, isWarning: warned.contains($0.key))
+            }
     }
 
     private static func allPids() -> [pid_t] {
