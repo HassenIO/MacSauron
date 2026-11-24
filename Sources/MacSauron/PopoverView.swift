@@ -199,7 +199,7 @@ private struct BatterySection: View {
 
     private var batterySymbol: String {
         guard let battery = metrics.battery else { return "battery.0percent" }
-        if battery.isCharging { return "battery.100percent.bolt" }
+        if battery.isCharging || battery.onAC { return "battery.100percent.bolt" } // like macOS: bolt whenever plugged in
         switch battery.percent {
         case 88...: return "battery.100percent"
         case 63...: return "battery.75percent"
