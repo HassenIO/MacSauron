@@ -67,12 +67,23 @@ final class AppResolver {
     }
 }
 
-/// Per-app CPU and memory usage, read with libproc.
+/// Top apps for each resource read by `ProcessMonitor`.
+struct ProcessSample {
+    /// % of one core, like Activity Monitor.
+    let cpu: [AppUsage]
+    /// Physical footprint in bytes.
+    let memory: [AppUsage]
+    /// Disk read + write bytes per second.
+    let disk: [AppUsage]
+}
+
+/// Per-app CPU, memory and disk IO, read with libproc.
 /// Only processes owned by the current user are readable without a privileged helper.
 final class ProcessMonitor {
     private struct Reading {
         let start: UInt64
         let cpuTime: UInt64 // nanoseconds
+        let diskBytes: UInt64 // read + written since process start
     }
 
     private let resolver = AppResolver()
@@ -93,13 +104,13 @@ final class ProcessMonitor {
         nanosPerTick = Double(timebase.numer) / Double(timebase.denom)
     }
 
-    /// Top apps by CPU (% of one core, like Activity Monitor) and by memory footprint (bytes).
-    /// The CPU list is empty on the first call (no previous sample to diff against).
-    func sample(limit: Int) -> (cpu: [AppUsage], memory: [AppUsage]) {
+    /// The CPU and disk lists are empty on the first call (no previous sample to diff against).
+    func sample(limit: Int) -> ProcessSample {
         let now = Date()
         let elapsed = previousTime.map { now.timeIntervalSince($0) * 1e9 } ?? 0
         var cpuByApp: [AppIdentity: Double] = [:]
         var memoryByApp: [AppIdentity: Double] = [:]
+        var diskByApp: [AppIdentity: Double] = [:]
         var current: [pid_t: Reading] = [:]
 
         for pid in Self.allPids() {
@@ -113,12 +124,18 @@ final class ProcessMonitor {
                   let app = resolver.identity(pid: pid, start: info.ri_proc_start_abstime) else { continue }
 
             let cpuTime = UInt64(Double(info.ri_user_time + info.ri_system_time) * nanosPerTick)
-            let reading = Reading(start: info.ri_proc_start_abstime, cpuTime: cpuTime)
+            let diskBytes = info.ri_diskio_bytesread + info.ri_diskio_byteswritten
+            let reading = Reading(start: info.ri_proc_start_abstime, cpuTime: cpuTime, diskBytes: diskBytes)
             current[pid] = reading
             memoryByApp[app, default: 0] += Double(info.ri_phys_footprint)
 
-            if elapsed > 0, let prev = previous[pid], prev.start == reading.start, cpuTime >= prev.cpuTime {
-                cpuByApp[app, default: 0] += Double(cpuTime - prev.cpuTime) / elapsed * 100
+            if elapsed > 0, let prev = previous[pid], prev.start == reading.start {
+                if cpuTime >= prev.cpuTime {
+                    cpuByApp[app, default: 0] += Double(cpuTime - prev.cpuTime) / elapsed * 100
+                }
+                if diskBytes >= prev.diskBytes {
+                    diskByApp[app, default: 0] += Double(diskBytes - prev.diskBytes) / elapsed * 1e9
+                }
             }
         }
 
@@ -130,7 +147,11 @@ final class ProcessMonitor {
             cpuWindow.append(cpuByApp)
             if cpuWindow.count > Self.cpuWarningSamples { cpuWindow.removeFirst() }
         }
-        return (Self.top(cpuByApp, limit: limit, warned: appsHoggingCPU()), Self.top(memoryByApp, limit: limit))
+        return ProcessSample(
+            cpu: Self.top(cpuByApp, limit: limit, warned: appsHoggingCPU()),
+            memory: Self.top(memoryByApp, limit: limit),
+            disk: Self.top(diskByApp, limit: limit, minimum: Self.minimumThroughput)
+        )
     }
 
     /// Apps whose CPU averaged above the threshold over a full 30s window.
@@ -143,9 +164,15 @@ final class ProcessMonitor {
         return Set(totals.filter { $0.value / Double(cpuWindow.count) > Self.cpuWarningThreshold }.keys)
     }
 
-    static func top(_ values: [AppIdentity: Double], limit: Int, warned: Set<AppIdentity> = []) -> [AppUsage] {
+    /// Throughput below this (bytes/s) would display as "0 KB/s", so it is left out of top lists.
+    static let minimumThroughput: Double = 1_000
+
+    /// The `limit` largest values above `minimum`, flagging apps in `warned`.
+    static func top(
+        _ values: [AppIdentity: Double], limit: Int, minimum: Double = 0, warned: Set<AppIdentity> = []
+    ) -> [AppUsage] {
         values
-            .filter { $0.value > 0 }
+            .filter { $0.value > minimum }
             .sorted { $0.value > $1.value }
             .prefix(limit)
             .map {

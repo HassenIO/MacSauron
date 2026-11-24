@@ -13,10 +13,17 @@ struct NetworkPoint: Identifiable {
     var id: Date { date }
 }
 
+struct DiskPoint: Identifiable {
+    let date: Date
+    let rate: DiskRate
+    var id: Date { date }
+}
+
 /// Everything the popover shows.
 struct Metrics {
     var cpuHistory: [CPUPoint] = []
     var networkHistory: [NetworkPoint] = []
+    var diskHistory: [DiskPoint] = []
     var memory: MemoryUsage?
     var battery: BatteryState?
     /// Readings MacSauron recorded itself (persisted).
@@ -27,9 +34,9 @@ struct Metrics {
     var topCPU: [AppUsage] = []
     var topMemory: [AppUsage] = []
     var topNetwork: [AppUsage] = []
+    var topDisk: [AppUsage] = []
 
     var cpu: CPULoad? { cpuHistory.last?.load }
-    var network: NetworkRate? { networkHistory.last?.rate }
 
     /// Battery readings for the last 12 hours, oldest first, ending with the live reading.
     /// The last reading older than the window is pinned to the window start, so the line spans the whole chart.
@@ -73,6 +80,7 @@ final class MetricsStore {
     @ObservationIgnored private let cpuMonitor = CPUMonitor()
     @ObservationIgnored private let memoryMonitor = MemoryMonitor()
     @ObservationIgnored private let networkMonitor = NetworkMonitor()
+    @ObservationIgnored private let diskMonitor = DiskMonitor()
     @ObservationIgnored private let processMonitor = ProcessMonitor()
     @ObservationIgnored private let processNetworkMonitor = ProcessNetworkMonitor()
 
@@ -102,8 +110,15 @@ final class MetricsStore {
             live.networkHistory.append(NetworkPoint(date: now, rate: rate))
             live.networkHistory.removeAll { $0.date < cutoff }
         }
+        if let rate = diskMonitor.sample() {
+            live.diskHistory.append(DiskPoint(date: now, rate: rate))
+            live.diskHistory.removeAll { $0.date < cutoff }
+        }
         live.memory = memoryMonitor.sample()
-        (live.topCPU, live.topMemory) = processMonitor.sample(limit: Self.topAppCount)
+        let processes = processMonitor.sample(limit: Self.topAppCount)
+        live.topCPU = processes.cpu
+        live.topMemory = processes.memory
+        live.topDisk = processes.disk
         live.battery = BatteryMonitor.read()
         recordBatteryIfNeeded(now: now)
 

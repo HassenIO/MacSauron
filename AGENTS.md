@@ -1,6 +1,6 @@
 # AGENTS.md
 
-MacSauron is a minimal macOS menu bar app (SwiftUI `MenuBarExtra` + Swift Charts) that shows CPU, memory, network and battery metrics, plus the top 4 apps for CPU, memory and network.
+MacSauron is a minimal macOS menu bar app (SwiftUI `MenuBarExtra` + Swift Charts) that shows CPU, memory, network, disk and battery metrics, plus the top 4 apps for CPU, memory, network and disk.
 It is a Swift Package with no Xcode project and no third-party dependencies.
 
 ## Commands
@@ -17,11 +17,11 @@ It is a Swift Package with no Xcode project and no third-party dependencies.
 All code lives in `Sources/MacSauron/`:
 
 - `MacSauronApp.swift` - app entry, `MenuBarExtra` scene, menu bar label.
-- `CPUMonitor.swift`, `MemoryMonitor.swift`, `NetworkMonitor.swift`, `BatteryMonitor.swift` - one reader per metric, built on Mach / sysctl / IOKit APIs (the same sources Activity Monitor uses, no `sudo`).
-- `ProcessMonitor.swift` - per-app CPU and memory via libproc (`proc_pid_rusage`), plus `AppIdentity` (groups helper processes under their outermost `.app`).
+- `CPUMonitor.swift`, `MemoryMonitor.swift`, `NetworkMonitor.swift`, `DiskMonitor.swift`, `BatteryMonitor.swift` - one reader per metric, built on Mach / sysctl / IOKit APIs (the same sources Activity Monitor uses, no `sudo`).
+- `ProcessMonitor.swift` - per-app CPU, memory and disk IO via libproc (`proc_pid_rusage`), the 30s CPU warning window, plus `AppIdentity` (groups helper processes under their outermost `.app`).
 - `ProcessNetworkMonitor.swift` - per-app network throughput from `nettop` runs.
 - `MetricsStore.swift` - `@MainActor @Observable` store, samples everything every 2s and keeps the histories.
-- `PopoverView.swift` - the popover UI, one section view per metric.
+- `PopoverView.swift` - the popover UI: two columns (CPU / Network, Memory / Disk) above a full-width Battery section.
 - `WindowVisibilityReader.swift` - reports whether the popover window is on screen (occlusion state).
 - `Format.swift` - number formatting helpers.
 - `Snapshot.swift` - the `--snapshot` dev helper.
@@ -39,6 +39,11 @@ All code lives in `Sources/MacSauron/`:
 - Memory definitions follow Activity Monitor: used = app + wired + compressed, app = internal - purgeable, cached = external + purgeable.
 - Top apps: CPU % follows Activity Monitor (100% = one core), memory is the summed physical footprint.
   Without a privileged helper only processes owned by the current user are readable, so root daemons (WindowServer, kernel_task) are absent from the CPU and memory lists.
+- An app averaging over 75% CPU across the last 15 samples (30s) is flagged and its icon becomes an orange warning triangle.
+- Disk: system-wide rates from IOKit `IOBlockStorageDriver` "Statistics"; per-app rates from `ri_diskio_bytesread/written` in the same `proc_pid_rusage` call.
+  Processes that exit between two samples are not counted.
+- Throughput top lists drop apps under 1 KB/s (they would read "0 KB/s").
+- `SectionRow` gives both sections of a row the same height and each section puts a `Spacer` before its top-apps list, so the lists line up.
 - Per-process network has no public API: `nettop -P -L 1` runs back to back in a detached task (each run takes ~5s wall time but little CPU) and consecutive runs are diffed per pid.
   Never stream `nettop` or `top` (measured at ~120% and ~7% CPU).
 - App icons are rasterized once into a small bitmap; raw `NSWorkspace` icons made `ImageRenderer` dim the whole snapshot.

@@ -7,8 +7,10 @@ Clicking it opens a popover with:
 - CPU load graph (user / system, last 5 minutes)
 - Memory breakdown (app, wired, compressed, cached, swap, memory pressure)
 - Network throughput graph (received / sent, last 5 minutes)
+- Disk read / write graph (last 5 minutes)
 - Battery level graph (last 12 hours)
-- The 4 apps using the most CPU, memory and network (helper processes are counted under their app)
+- The 4 apps using the most CPU, memory, network and disk (helper processes are counted under their app)
+- A warning icon next to any app averaging more than 75% CPU (of one core) over the last 30 seconds
 
 All figures come from the same kernel and IOKit sources Activity Monitor uses.
 No admin rights are needed.

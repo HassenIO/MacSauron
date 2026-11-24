@@ -5,21 +5,55 @@ struct PopoverView: View {
     let store: MetricsStore
 
     var body: some View {
+        let metrics = store.metrics
         VStack(alignment: .leading, spacing: 0) {
-            CPUSection(metrics: store.metrics)
+            SectionRow {
+                CPUSection(metrics: metrics)
+            } right: {
+                ThroughputSection(
+                    title: "Network", symbol: "network",
+                    points: metrics.networkHistory.map { RatePoint(date: $0.date, first: $0.rate.bytesIn, second: $0.rate.bytesOut) },
+                    first: ("Received", .blue), second: ("Sent", .orange),
+                    topApps: metrics.topNetwork
+                )
+            }
             Divider().padding(.vertical, 12)
-            MemorySection(memory: store.metrics.memory, topApps: store.metrics.topMemory)
-            Divider().padding(.vertical, 12)
-            NetworkSection(metrics: store.metrics)
-            if store.metrics.battery != nil {
+            SectionRow {
+                MemorySection(memory: metrics.memory, topApps: metrics.topMemory)
+            } right: {
+                ThroughputSection(
+                    title: "Disk", symbol: "internaldrive",
+                    points: metrics.diskHistory.map { RatePoint(date: $0.date, first: $0.rate.read, second: $0.rate.write) },
+                    first: ("Read", .blue), second: ("Write", .red),
+                    topApps: metrics.topDisk
+                )
+            }
+            if metrics.battery != nil {
                 Divider().padding(.vertical, 12)
-                BatterySection(metrics: store.metrics)
+                BatterySection(metrics: metrics)
             }
             Divider().padding(.vertical, 12)
             Footer()
         }
         .padding(16)
-        .frame(width: 340)
+        .frame(width: 2 * Self.columnWidth + Self.columnSpacing + 32)
+    }
+
+    static let columnWidth: CGFloat = 300
+    static let columnSpacing: CGFloat = 32
+}
+
+/// Two sections side by side with equal heights, so their top-apps lists line up at the bottom.
+private struct SectionRow<Left: View, Right: View>: View {
+    @ViewBuilder let left: Left
+    @ViewBuilder let right: Right
+
+    var body: some View {
+        HStack(alignment: .top, spacing: PopoverView.columnSpacing) {
+            left.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            right.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -51,6 +85,7 @@ private struct CPUSection: View {
                 ("System", Format.percent(metrics.cpu?.system ?? 0), .red),
                 ("Idle", Format.percent(1 - (metrics.cpu?.total ?? 0)), .secondary),
             ])
+            Spacer(minLength: 0)
             TopApps(apps: metrics.topCPU, format: Format.cpuPercent)
         }
     }
@@ -79,8 +114,9 @@ private struct MemorySection: View {
                     ("Swap", Format.gigabytes(memory.swapUsed), .secondary),
                     ("Pressure", memory.pressure.rawValue, pressureColor(memory.pressure)),
                 ])
-                TopApps(apps: topApps) { Format.memory(UInt64($0)) }
             }
+            Spacer(minLength: 0)
+            TopApps(apps: topApps) { Format.memory(UInt64($0)) }
         }
     }
 
@@ -120,25 +156,38 @@ private struct MemoryBar: View {
     }
 }
 
-private struct NetworkSection: View {
-    let metrics: Metrics
+struct RatePoint: Identifiable {
+    let date: Date
+    let first: Double
+    let second: Double
+    var id: Date { date }
+}
+
+/// Two rates over the live window (e.g. received / sent), their current values, and the top apps.
+private struct ThroughputSection: View {
+    let title: String
+    let symbol: String
+    let points: [RatePoint]
+    let first: (label: String, color: Color)
+    let second: (label: String, color: Color)
+    let topApps: [AppUsage]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: "Network", symbol: "network", value: nil)
+            SectionHeader(title: title, symbol: symbol, value: nil)
             Chart {
-                ForEach(metrics.networkHistory) { point in
-                    LineMark(x: .value("Time", point.date), y: .value("Rate", point.rate.bytesIn))
-                        .foregroundStyle(by: .value("Direction", "Received"))
+                ForEach(points) { point in
+                    LineMark(x: .value("Time", point.date), y: .value("Rate", point.first))
+                        .foregroundStyle(by: .value("Series", first.label))
                         .interpolationMethod(.monotone)
                         .lineStyle(StrokeStyle(lineWidth: 1.5))
-                    LineMark(x: .value("Time", point.date), y: .value("Rate", point.rate.bytesOut))
-                        .foregroundStyle(by: .value("Direction", "Sent"))
+                    LineMark(x: .value("Time", point.date), y: .value("Rate", point.second))
+                        .foregroundStyle(by: .value("Series", second.label))
                         .interpolationMethod(.monotone)
                         .lineStyle(StrokeStyle(lineWidth: 1.5))
                 }
             }
-            .chartForegroundStyleScale(["Received": Color.blue, "Sent": Color.orange])
+            .chartForegroundStyleScale([first.label: first.color, second.label: second.color])
             .chartXScale(domain: liveDomain())
             .chartYAxis {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
@@ -152,10 +201,11 @@ private struct NetworkSection: View {
             .chartLegend(.hidden)
             .frame(height: 64)
             StatRow(items: [
-                ("Received", Format.rate(metrics.network?.bytesIn ?? 0), .blue),
-                ("Sent", Format.rate(metrics.network?.bytesOut ?? 0), .orange),
+                (first.label, Format.rate(points.last?.first ?? 0), first.color),
+                (second.label, Format.rate(points.last?.second ?? 0), second.color),
             ])
-            TopApps(apps: metrics.topNetwork, format: Format.rate)
+            Spacer(minLength: 0)
+            TopApps(apps: topApps, format: Format.rate)
         }
     }
 }

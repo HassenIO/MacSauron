@@ -30,7 +30,7 @@ final class ProcessNetworkMonitor {
             guard let prevBytes = prev.bytes[pid], bytes > prevBytes else { continue }
             rateByApp[identity(pid: pid, fallbackName: counters.names[pid]), default: 0] += Double(bytes - prevBytes) / elapsed
         }
-        return ProcessMonitor.top(rateByApp, limit: limit)
+        return ProcessMonitor.top(rateByApp, limit: limit, minimum: ProcessMonitor.minimumThroughput)
     }
 
     private func identity(pid: pid_t, fallbackName: String?) -> AppIdentity {
