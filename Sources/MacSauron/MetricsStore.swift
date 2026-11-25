@@ -25,12 +25,20 @@ struct DiskPoint: Identifiable {
     var id: Date { date }
 }
 
+/// A thermal state change: `state` holds from `date` until the next point.
+struct ThermalPoint {
+    let date: Date
+    let state: ProcessInfo.ThermalState
+}
+
 /// Everything the popover shows.
 struct Metrics {
     var cpuHistory: [CPUPoint] = []
     var networkHistory: [NetworkPoint] = []
     var diskHistory: [DiskPoint] = []
     var memoryHistory: [MemoryPoint] = []
+    /// Thermal state changes since launch (macOS keeps no history), trimmed to the live window.
+    var thermalHistory: [ThermalPoint] = []
     var battery: BatteryState?
     /// Readings MacSauron recorded itself (persisted).
     var recordedBattery: [BatteryPoint] = []
@@ -130,9 +138,22 @@ final class MetricsStore {
         live.topMemory = processes.memory
         live.topDisk = processes.disk
         live.battery = BatteryMonitor.read()
+        recordThermalState(now: now)
         recordBatteryIfNeeded(now: now)
 
         if isPopoverVisible { metrics = live }
+    }
+
+    private func recordThermalState(now: Date) {
+        let state = ProcessInfo.processInfo.thermalState
+        if live.thermalHistory.last?.state != state {
+            live.thermalHistory.append(ThermalPoint(date: now, state: state))
+        }
+        // Keep the latest change before the window: it gives the state at the window start.
+        let cutoff = now.addingTimeInterval(-Self.liveWindow)
+        while live.thermalHistory.count > 1, live.thermalHistory[1].date < cutoff {
+            live.thermalHistory.removeFirst()
+        }
     }
 
     private func recordBatteryIfNeeded(now: Date) {

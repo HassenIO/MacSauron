@@ -28,9 +28,11 @@ struct PopoverView: View {
                     topApps: metrics.topDisk
                 )
             }
-            if metrics.battery != nil {
-                Divider().padding(.vertical, 12)
-                BatterySection(metrics: metrics)
+            Divider().padding(.vertical, 12)
+            SectionRow {
+                if metrics.battery != nil { BatterySection(metrics: metrics) }
+            } right: {
+                ThermalSection(history: metrics.thermalHistory)
             }
             Divider().padding(.vertical, 12)
             Footer()
@@ -128,6 +130,7 @@ private struct MemorySection: View {
             .chartXAxis(.hidden)
             .frame(height: 64)
             if let memory {
+                MemoryBar(memory: memory)
                 StatRow(items: [
                     ("App", Format.gigabytes(memory.app), .blue),
                     ("Wired", Format.gigabytes(memory.wired), .orange),
@@ -150,6 +153,33 @@ private struct MemorySection: View {
         case .warning: .yellow
         case .critical: .red
         }
+    }
+}
+
+/// Horizontal bar splitting physical memory into app / wired / compressed / cached / free.
+private struct MemoryBar: View {
+    let memory: MemoryUsage
+
+    var body: some View {
+        let segments: [(UInt64, Color)] = [
+            (memory.app, .blue), (memory.wired, .orange), (memory.compressed, .purple), (memory.cached, .teal),
+        ]
+        GeometryReader { geo in
+            HStack(spacing: 1) {
+                ForEach(segments.indices, id: \.self) { index in
+                    segments[index].1
+                        .frame(width: geo.size.width * fraction(segments[index].0))
+                }
+                Spacer(minLength: 0)
+            }
+            .background(Color.secondary.opacity(0.2))
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+        }
+        .frame(height: 10)
+    }
+
+    private func fraction(_ value: UInt64) -> CGFloat {
+        memory.physical > 0 ? CGFloat(value) / CGFloat(memory.physical) : 0
     }
 }
 
@@ -267,6 +297,88 @@ private struct BatterySection: View {
     }
 }
 
+/// Whether macOS is throttling the Mac for heat, over the live window (macOS keeps no history to show more).
+private struct ThermalSection: View {
+    let history: [ThermalPoint]
+
+    var body: some View {
+        let state = history.last?.state
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(title: "Thermal", symbol: "thermometer.medium", value: state.map(Self.name))
+            Chart(segments, id: \.start) { segment in
+                RectangleMark(
+                    xStart: .value("Time", segment.start),
+                    xEnd: .value("Time", segment.end),
+                    yStart: .value("Level", 0),
+                    yEnd: .value("Level", Self.level(segment.state))
+                )
+                .foregroundStyle(Self.color(segment.state).opacity(0.6))
+            }
+            .chartYScale(domain: 0...4)
+            .chartXScale(domain: liveDomain())
+            .chartYAxis {
+                // One band per state (Nominal = 0...1, ..., Critical = 3...4), each label centered in its band.
+                AxisMarks(values: [0, 1, 2, 3, 4]) { _ in AxisGridLine() }
+                AxisMarks(position: .leading, values: [0.5, 1.5, 2.5, 3.5]) { value in
+                    AxisValueLabel {
+                        if let center = value.as(Double.self) {
+                            Text(["Nominal", "Fair", "Serious", "Critical"][Int(center)]).font(.system(size: 8))
+                        }
+                    }
+                }
+            }
+            .chartXAxis {
+                // A single label in the battery chart's hour-label row, so both columns keep the same layout.
+                AxisMarks(values: [liveDomain().lowerBound]) { _ in
+                    AxisValueLabel(centered: false) { Text("Last 5 min").font(.system(size: 8)) }
+                }
+            }
+            .frame(height: 72)
+            Text(state.map(Self.detail) ?? "")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Each state from its change (clamped to the window start) until the next change or now.
+    private var segments: [(start: Date, end: Date, state: ProcessInfo.ThermalState)] {
+        let now = Date()
+        let windowStart = liveDomain().lowerBound
+        return history.indices.map { index in
+            let end = index + 1 < history.count ? history[index + 1].date : now
+            return (max(history[index].date, windowStart), end, history[index].state)
+        }
+    }
+
+    private static func level(_ state: ProcessInfo.ThermalState) -> Int {
+        switch state {
+        case .nominal: 1
+        case .fair: 2
+        case .serious: 3
+        case .critical: 4
+        @unknown default: 1
+        }
+    }
+
+    private static func name(_ state: ProcessInfo.ThermalState) -> String {
+        ["Nominal", "Fair", "Serious", "Critical"][level(state) - 1]
+    }
+
+    private static func color(_ state: ProcessInfo.ThermalState) -> Color {
+        [Color.green, .yellow, .orange, .red][level(state) - 1]
+    }
+
+    private static func detail(_ state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal: "No throttling"
+        case .fair: "Warm - background work may be slowed"
+        case .serious: "Hot - CPU slowed to cool down"
+        case .critical: "Very hot - performance heavily reduced"
+        @unknown default: ""
+        }
+    }
+}
+
 private struct Footer: View {
     var body: some View {
         HStack {
@@ -300,6 +412,7 @@ private struct SectionHeader: View {
                     .monospacedDigit()
             }
         }
+        .frame(height: 16) // same height whatever the symbol (the thermometer is taller), so side-by-side sections align
     }
 }
 

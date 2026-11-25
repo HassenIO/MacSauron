@@ -1,6 +1,6 @@
 # AGENTS.md
 
-MacSauron is a minimal macOS menu bar app (SwiftUI `MenuBarExtra` + Swift Charts) that shows CPU, memory, network, disk and battery metrics, plus the top 4 apps for CPU, memory, network and disk.
+MacSauron is a minimal macOS menu bar app (SwiftUI `MenuBarExtra` + Swift Charts) that shows CPU, memory, network, disk, battery and thermal metrics, plus the top 4 apps for CPU, memory, network and disk.
 It is a Swift Package with no Xcode project and no third-party dependencies.
 
 ## Commands
@@ -21,7 +21,7 @@ All code lives in `Sources/MacSauron/`:
 - `ProcessMonitor.swift` - per-app CPU, memory and disk IO via libproc (`proc_pid_rusage`), the 30s CPU warning window, plus `AppIdentity` (groups helper processes under their outermost `.app`).
 - `ProcessNetworkMonitor.swift` - per-app network throughput from `nettop` runs.
 - `MetricsStore.swift` - `@MainActor @Observable` store, samples everything every 2s and keeps the histories.
-- `PopoverView.swift` - the popover UI: two columns (CPU / Network, Memory / Disk) above a full-width Battery section.
+- `PopoverView.swift` - the popover UI: three two-column rows (CPU / Network, Memory / Disk, Battery / Thermal).
 - `WindowVisibilityReader.swift` - reports whether the popover window is on screen (occlusion state).
 - `Format.swift` - number formatting helpers.
 - `Snapshot.swift` - the `--snapshot` dev helper.
@@ -36,6 +36,10 @@ All code lives in `Sources/MacSauron/`:
 - Battery history is persisted to `~/Library/Application Support/MacSauron/battery.json` (one reading per minute, 24h retention).
   On launch it is backfilled from `pmset -g log` charge entries, parsed off the main thread.
   The latest reading older than the 12h window is pinned to the window start so the graph spans the full chart.
+- Thermal: `ProcessInfo.thermalState`, recorded on change in memory only, over the 5-minute live window (keeping the change before it).
+  macOS keeps no thermal history (`pmset -g log` has none), so a 12h axis next to the battery graph showed an invisible sliver after launch.
+  It is not a temperature; sensor temperatures need private SMC / IOHID APIs, which this app avoids.
+- `SectionHeader` has a fixed height so a taller symbol (the thermometer) does not shift one column against the other.
 - Memory definitions follow Activity Monitor: used = app + wired + compressed, app = internal - purgeable, cached = external + purgeable.
 - Memory pressure % is `100 - kern.memorystatus_level` (what Activity Monitor plots); the level (green / yellow / red) comes from `kern.memorystatus_vm_pressure_level`.
   The chart stacks one stepped area per level, with each sample counted only towards its own level, so each color is one seamless shape (per-sample bars showed antialiasing seams).
