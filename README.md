@@ -5,7 +5,7 @@ The menu bar shows the current CPU load.
 Clicking it opens a popover with:
 
 - CPU load graph (user / system, last 5 minutes)
-- Memory breakdown (app, wired, compressed, cached, swap, memory pressure)
+- Memory pressure graph for the last 5 minutes (colored by pressure level) and memory breakdown (app, wired, compressed, cached, swap)
 - Network throughput graph (received / sent, last 5 minutes)
 - Disk read / write graph (last 5 minutes)
 - Battery level graph (last 12 hours)

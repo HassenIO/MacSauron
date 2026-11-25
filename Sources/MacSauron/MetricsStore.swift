@@ -13,6 +13,12 @@ struct NetworkPoint: Identifiable {
     var id: Date { date }
 }
 
+struct MemoryPoint: Identifiable {
+    let date: Date
+    let usage: MemoryUsage
+    var id: Date { date }
+}
+
 struct DiskPoint: Identifiable {
     let date: Date
     let rate: DiskRate
@@ -24,7 +30,7 @@ struct Metrics {
     var cpuHistory: [CPUPoint] = []
     var networkHistory: [NetworkPoint] = []
     var diskHistory: [DiskPoint] = []
-    var memory: MemoryUsage?
+    var memoryHistory: [MemoryPoint] = []
     var battery: BatteryState?
     /// Readings MacSauron recorded itself (persisted).
     var recordedBattery: [BatteryPoint] = []
@@ -37,6 +43,7 @@ struct Metrics {
     var topDisk: [AppUsage] = []
 
     var cpu: CPULoad? { cpuHistory.last?.load }
+    var memory: MemoryUsage? { memoryHistory.last?.usage }
 
     /// Battery readings for the last 12 hours, oldest first, ending with the live reading.
     /// The last reading older than the window is pinned to the window start, so the line spans the whole chart.
@@ -114,7 +121,10 @@ final class MetricsStore {
             live.diskHistory.append(DiskPoint(date: now, rate: rate))
             live.diskHistory.removeAll { $0.date < cutoff }
         }
-        live.memory = memoryMonitor.sample()
+        if let usage = memoryMonitor.sample() {
+            live.memoryHistory.append(MemoryPoint(date: now, usage: usage))
+            live.memoryHistory.removeAll { $0.date < cutoff }
+        }
         let processes = processMonitor.sample(limit: Self.topAppCount)
         live.topCPU = processes.cpu
         live.topMemory = processes.memory

@@ -37,6 +37,8 @@ All code lives in `Sources/MacSauron/`:
   On launch it is backfilled from `pmset -g log` charge entries, parsed off the main thread.
   The latest reading older than the 12h window is pinned to the window start so the graph spans the full chart.
 - Memory definitions follow Activity Monitor: used = app + wired + compressed, app = internal - purgeable, cached = external + purgeable.
+- Memory pressure % is `100 - kern.memorystatus_level` (what Activity Monitor plots); the level (green / yellow / red) comes from `kern.memorystatus_vm_pressure_level`.
+  The chart stacks one stepped area per level, with each sample counted only towards its own level, so each color is one seamless shape (per-sample bars showed antialiasing seams).
 - Top apps: CPU % follows Activity Monitor (100% = one core), memory is the summed physical footprint.
   Without a privileged helper only processes owned by the current user are readable, so root daemons (WindowServer, kernel_task) are absent from the CPU and memory lists.
 - An app averaging over 75% CPU across the last 15 samples (30s) is flagged and its icon becomes an orange warning triangle.

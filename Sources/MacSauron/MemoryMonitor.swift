@@ -1,6 +1,6 @@
 import Darwin
 
-enum MemoryPressure: String {
+enum MemoryPressure: String, CaseIterable {
     case normal = "Normal"
     case warning = "Warning"
     case critical = "Critical"
@@ -15,6 +15,8 @@ struct MemoryUsage {
     let cached: UInt64
     let swapUsed: UInt64
     let pressure: MemoryPressure
+    /// 0-100, what Activity Monitor's memory pressure graph plots.
+    let pressurePercent: Double
 
     var used: UInt64 { app + wired + compressed }
     var free: UInt64 { physical > used + cached ? physical - used - cached : 0 }
@@ -46,6 +48,8 @@ final class MemoryMonitor {
         let purgeable = UInt64(stats.purgeable_count)
         let swap: xsw_usage = sysctlValue("vm.swapusage") ?? xsw_usage()
         let level: Int32 = sysctlValue("kern.memorystatus_vm_pressure_level") ?? 1
+        // Percentage of memory the kernel considers available; pressure is the remainder.
+        let available: Int32 = sysctlValue("kern.memorystatus_level") ?? 100
 
         return MemoryUsage(
             physical: physical,
@@ -54,7 +58,8 @@ final class MemoryMonitor {
             compressed: UInt64(stats.compressor_page_count) * page,
             cached: (UInt64(stats.external_page_count) + purgeable) * page,
             swapUsed: swap.xsu_used,
-            pressure: level >= 4 ? .critical : level >= 2 ? .warning : .normal
+            pressure: level >= 4 ? .critical : level >= 2 ? .warning : .normal,
+            pressurePercent: Double(100 - min(max(available, 0), 100))
         )
     }
 }

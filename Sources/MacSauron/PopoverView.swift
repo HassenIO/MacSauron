@@ -19,7 +19,7 @@ struct PopoverView: View {
             }
             Divider().padding(.vertical, 12)
             SectionRow {
-                MemorySection(memory: metrics.memory, topApps: metrics.topMemory)
+                MemorySection(history: metrics.memoryHistory, topApps: metrics.topMemory)
             } right: {
                 ThroughputSection(
                     title: "Disk", symbol: "internaldrive",
@@ -92,18 +92,42 @@ private struct CPUSection: View {
 }
 
 private struct MemorySection: View {
-    let memory: MemoryUsage?
+    let history: [MemoryPoint]
     let topApps: [AppUsage]
 
     var body: some View {
+        let memory = history.last?.usage
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(
                 title: "Memory",
                 symbol: "memorychip",
                 value: memory.map { "\(Format.gigabytes($0.used)) / \($0.physical >> 30) GB" }
             )
+            // Pressure colored by level, like Activity Monitor. One stacked series per level, where a sample counts
+            // only towards its own level, draws each color as a single seamless area.
+            Chart {
+                ForEach(history) { point in
+                    ForEach(MemoryPressure.allCases, id: \.self) { level in
+                        AreaMark(
+                            x: .value("Time", point.date),
+                            y: .value("Pressure", point.usage.pressure == level ? point.usage.pressurePercent : 0)
+                        )
+                        .foregroundStyle(by: .value("Level", level.rawValue))
+                        .interpolationMethod(.stepStart)
+                    }
+                }
+            }
+            .chartForegroundStyleScale(
+                domain: MemoryPressure.allCases.map(\.rawValue),
+                range: MemoryPressure.allCases.map(pressureColor)
+            )
+            .chartLegend(.hidden)
+            .chartYScale(domain: 0...100)
+            .chartXScale(domain: liveDomain())
+            .chartYAxis { percentAxis() }
+            .chartXAxis(.hidden)
+            .frame(height: 64)
             if let memory {
-                MemoryBar(memory: memory)
                 StatRow(items: [
                     ("App", Format.gigabytes(memory.app), .blue),
                     ("Wired", Format.gigabytes(memory.wired), .orange),
@@ -126,33 +150,6 @@ private struct MemorySection: View {
         case .warning: .yellow
         case .critical: .red
         }
-    }
-}
-
-/// Horizontal bar splitting physical memory into app / wired / compressed / cached / free.
-private struct MemoryBar: View {
-    let memory: MemoryUsage
-
-    var body: some View {
-        let segments: [(UInt64, Color)] = [
-            (memory.app, .blue), (memory.wired, .orange), (memory.compressed, .purple), (memory.cached, .teal),
-        ]
-        GeometryReader { geo in
-            HStack(spacing: 1) {
-                ForEach(segments.indices, id: \.self) { index in
-                    segments[index].1
-                        .frame(width: geo.size.width * fraction(segments[index].0))
-                }
-                Spacer(minLength: 0)
-            }
-            .background(Color.secondary.opacity(0.2))
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-        }
-        .frame(height: 10)
-    }
-
-    private func fraction(_ value: UInt64) -> CGFloat {
-        memory.physical > 0 ? CGFloat(value) / CGFloat(memory.physical) : 0
     }
 }
 
